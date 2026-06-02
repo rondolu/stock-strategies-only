@@ -33,6 +33,11 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     ], axis=1).max(axis=1)
     df["atr"] = tr.rolling(14).mean()
 
+    delta = df["close"].diff()
+    gain = delta.where(delta > 0, 0).rolling(14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+    df["rsi"] = 100 - (100 / (1 + gain / loss))
+
     return df
 
 
@@ -69,5 +74,10 @@ def tech_score_at(row: pd.Series) -> dict:
             signals.append("MACD多頭")
         elif row["macd_hist"] > 0:
             score += 10
+
+    if pd.notna(row.get("rsi")) and 30 < row["rsi"] < 70:
+        score += 20
+        signals.append("RSI 中性區")    
+        
 
     return {"score": score, "signals": signals}

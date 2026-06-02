@@ -22,6 +22,8 @@ def read_watchlist() -> list[dict]:
     sh = get_gsheet()
     ws = sh.worksheet("Watchlist")
     rows = ws.get_all_records()
+    # 正規化欄位名稱：去除首尾空白並轉小寫，避免 Google Sheet 標題有多餘空格或大小寫不一致
+    rows = [{k.strip().lower(): v for k, v in r.items()} for r in rows]
     enabled = [
         r for r in rows
         if str(r.get("enabled", "")).upper() in ("TRUE", "1", "YES")
