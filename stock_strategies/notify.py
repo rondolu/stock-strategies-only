@@ -259,6 +259,35 @@ def _chunk_items(items: list[dict], chunk_size: int = 8) -> list[list[dict]]:
     return [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]
 
 
+def _setup_group_lines(items: list[dict]) -> list[str]:
+    """產生型態分組清單，方便快速查看每種型態有哪些股票。"""
+    setup_order = ["first_wave", "pullback", "momentum"]
+    setup_names = {
+        "first_wave": "第一波",
+        "pullback": "主升回測",
+        "momentum": "續強",
+    }
+
+    lines = []
+    for key in setup_order:
+        members = [
+            f"{_md_escape(s.get('stock_id', ''))}{_md_escape(s.get('name', ''))}"
+            for s in items
+            if s.get("setup_type") == key
+        ]
+        member_text = "、".join(members) if members else "無"
+        lines.append(f"{setup_names[key]}：{member_text}")
+
+    others = [
+        f"{_md_escape(s.get('stock_id', ''))}{_md_escape(s.get('name', ''))}"
+        for s in items
+        if s.get("setup_type") not in setup_order
+    ]
+    if others:
+        lines.append(f"其他：{'、'.join(others)}")
+    return lines
+
+
 def format_messages(signals: list[dict], watchlist: list[dict] = None) -> list[str]:
     """產生多則 Telegram 訊息"""
     buys = [s for s in signals if s.get("action") == "BUY"]
@@ -276,7 +305,7 @@ def format_messages(signals: list[dict], watchlist: list[dict] = None) -> list[s
 
     # === 第一則：市場總覽 + 類股強弱 ===
     msg1 = []
-    msg1.append(f"📊 *V4.0 每日選股報告* {today}")
+    msg1.append(f"📊 *每日選股報告* {today}")
     msg1.append(
         f"掃描 {total} 檔 | 保守型BUY {len(conservative_buys)} | 積極型BUY {len(aggressive_buys)} | WATCH {len(watches)} | SKIP {len(skips)}"
     )
@@ -334,6 +363,8 @@ def format_messages(signals: list[dict], watchlist: list[dict] = None) -> list[s
             suffix = f" #{idx}" if len(conservative_chunks) > 1 else ""
             msg3.append(f"🔵 *保守型BUY ({len(conservative_buys)})*{suffix}")
             msg3.append("趨勢較完整，適合分批布局")
+            msg3.append("📍 型態對照")
+            msg3.extend(_setup_group_lines(chunk))
             msg3.append("")
             for s in chunk:
                 msg3.extend(_format_stock_detail(s))
@@ -352,6 +383,8 @@ def format_messages(signals: list[dict], watchlist: list[dict] = None) -> list[s
             suffix = f" #{idx}" if len(aggressive_chunks) > 1 else ""
             msg4.append(f"🟠 *積極型BUY ({len(aggressive_buys)})*{suffix}")
             msg4.append("⚠️ 積極型標的短線波動較大，建議小部位或分批")
+            msg4.append("📍 型態對照")
+            msg4.extend(_setup_group_lines(chunk))
             msg4.append("")
             for s in chunk:
                 msg4.extend(_format_stock_detail(s))
@@ -362,49 +395,45 @@ def format_messages(signals: list[dict], watchlist: list[dict] = None) -> list[s
     else:
         messages.append("🟠 *積極型BUY*\n今日無符合趨勢轉強條件的標的")
 
-    # === 第五則：WATCH + 操作建議 ===
-    msg5 = []
-    msg5.append("🧠 *WATCH 與今日操作建議*")
-    msg5.append("")
+    # === 第五則起：WATCH 完整說明（分頁）===
+    watch_chunks = _chunk_items(watches)
+    if watch_chunks:
+        for idx, chunk in enumerate(watch_chunks, 1):
+            msg_w = []
+            suffix = f" #{idx}" if len(watch_chunks) > 1 else ""
+            msg_w.append(f"🟡 *WATCH ({len(watches)})*{suffix}")
+            msg_w.append("觀察中，尚未完全符合進場條件")
+            if idx == 1:
+                msg_w.append("📍 型態對照")
+                msg_w.extend(_setup_group_lines(watches))
+            msg_w.append("")
+            for s in chunk:
+                msg_w.extend(_format_stock_detail(s))
+                msg_w.append(f"🧩 條件檢核: {_explain_watch_gap(s)}")
+                msg_w.append("")
+            messages.append("\n".join(msg_w))
+    else:
+        messages.append("🟡 *WATCH*\n今日無觀察標的")
 
-    if watches:
-        top_watches = watches[:6]
-        rest_watches = watches[6:]
-        msg5.append(f"🟡 *WATCH TOP {len(top_watches)}*")
-        for s in top_watches:
-            msg5.append(
-                f"• *{_md_escape(s['stock_id'])} {_md_escape(s['name'])}*：{_explain_watch_gap(s)}"
-            )
-        msg5.append("")
-
-        if rest_watches:
-            msg5.append(f"📎 其他觀察 {len(rest_watches)} 檔")
-            rest_line = ", ".join(
-                [
-                    f"{_md_escape(s['stock_id'])}{_md_escape(s['name'])}({_md_escape(s.get('sort_score', s.get('signal_score', 0)))})"
-                    for s in rest_watches
-                ]
-            )
-            msg5.append(rest_line)
-            msg5.append("")
-
-    msg5.append("📌 *操作方向*")
+    # === 最後一則：操作建議 ===
+    msg_op = []
+    msg_op.append("📌 *操作方向*")
     sentiment = _market_sentiment(signals)
     if "偏多" in sentiment and "中性" not in sentiment:
-        msg5.append("• 市場偏多，可挑選保守型BUY分批進場")
-        msg5.append("• 積極型BUY在多頭行情也值得重視，可用小部位分批參與")
+        msg_op.append("• 市場偏多，可挑選保守型BUY分批進場")
+        msg_op.append("• 積極型BUY在多頭行情也值得重視，可用小部位分批參與")
     elif "偏多" in sentiment:
-        msg5.append("• 市場中性偏多，選股不選市")
-        msg5.append("• 優先等回測品質較佳的標的回測支撐")
+        msg_op.append("• 市場中性偏多，選股不選市")
+        msg_op.append("• 優先等回測品質較佳的標的回測支撐")
     elif "偏空" in sentiment and "中性" not in sentiment:
-        msg5.append("• 市場偏空，建議空手觀望")
-        msg5.append("• 僅追蹤WATCH清單，等待轉強")
+        msg_op.append("• 市場偏空，建議空手觀望")
+        msg_op.append("• 僅追蹤WATCH清單，等待轉強")
     else:
-        msg5.append("• 市場中性偏空，控制總部位在半倉以下")
-        msg5.append("• 僅做高勝率且風險可控機會")
-    msg5.append("")
-    msg5.append("_以上為系統自動分析，僅供參考，投資決策請自行判斷_")
-    messages.append("\n".join(msg5))
+        msg_op.append("• 市場中性偏空，控制總部位在半倉以下")
+        msg_op.append("• 僅做高勝率且風險可控機會")
+    msg_op.append("")
+    msg_op.append("_以上為系統自動分析，僅供參考，投資決策請自行判斷_")
+    messages.append("\n".join(msg_op))
 
     return messages
 
