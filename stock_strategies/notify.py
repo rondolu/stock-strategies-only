@@ -1,11 +1,22 @@
 import os
 import sys
+import json
 from datetime import datetime
 
 import numpy as np
 import requests
 
 from .config import CONFIG, TELEGRAM_API
+
+
+def _md_escape(value: object) -> str:
+    """Escape dynamic text for Telegram Markdown (legacy mode)."""
+    if value is None:
+        return ""
+    text = str(value)
+    for ch in "\\`*_[]":
+        text = text.replace(ch, f"\\{ch}")
+    return text
 
 
 def send_telegram(text: str):
@@ -16,6 +27,28 @@ def send_telegram(text: str):
         "parse_mode": "Markdown",
     }
     r = requests.post(url, json=payload, timeout=10)
+    if r.ok:
+        return
+
+    err_desc = ""
+    try:
+        err_desc = (r.json() or {}).get("description", "")
+    except (ValueError, json.JSONDecodeError):
+        err_desc = r.text
+
+    # Telegram Markdown parsing is strict; retry once as plain text to avoid delivery loss.
+    if r.status_code == 400 and "can't parse entities" in err_desc.lower():
+        fallback_payload = {
+            "chat_id": os.environ["TELEGRAM_CHAT_ID"],
+            "text": text,
+        }
+        r2 = requests.post(url, json=fallback_payload, timeout=10)
+        if r2.ok:
+            print("Telegram Markdown 解析失敗，已改用純文字送出", file=sys.stderr)
+            return
+        print(f"Telegram 送失敗(純文字重試後): {r2.text}", file=sys.stderr)
+        return
+
     if not r.ok:
         print(f"Telegram 送失敗: {r.text}", file=sys.stderr)
 
@@ -73,7 +106,11 @@ def _format_stock_detail(s: dict, show_trend: bool = True) -> list[str]:
     lines = []
     wr = f"{c['backtest_winrate']*100:.0f}%" if c.get("backtest_winrate") else "N/A"
     style_text = _style_setup_label(s.get("buy_style"), s.get("setup_type"))
-    lines.append(f"*{s['stock_id']} {s['name']}*  {style_text} | 排序 {s.get('sort_score', s.get('signal_score', 'N/A'))}")
+    stock_id = _md_escape(s.get("stock_id", ""))
+    stock_name = _md_escape(s.get("name", ""))
+    lines.append(
+        f"*{stock_id} {stock_name}*  {style_text} | 排序 {_md_escape(s.get('sort_score', s.get('signal_score', 'N/A')))}"
+    )
     if show_trend and t:
         ma_status = ""
         if t.get("above_ma20") and t.get("above_ma60"):
@@ -90,26 +127,26 @@ def _format_stock_detail(s: dict, show_trend: bool = True) -> list[str]:
 
     reasons = s.get("buy_reason", [])
     if reasons:
-        lines.append(f"入選原因: {' / '.join(reasons[:3])}")
+        lines.append(f"入選原因: {' / '.join(_md_escape(x) for x in reasons[:3])}")
     lines.append(f"📍 布局型態: {_setup_type_label(s.get('setup_type'))}（{_explain_setup_type(s.get('setup_type'))}）")
     if s.get("primary_risk"):
-        lines.append(f"⚠️ 主要風險: {s['primary_risk']}")
+        lines.append(f"⚠️ 主要風險: {_md_escape(s['primary_risk'])}")
 
     lines.append(
-        f"進場 {s['entry_price']} → 停損 {s['stop_loss_price']} / 目標 {s['target_price']}"
+        f"進場 {_md_escape(s['entry_price'])} → 停損 {_md_escape(s['stop_loss_price'])} / 目標 {_md_escape(s['target_price'])}"
     )
     lines.append(
-        f"風報比 1:{s['risk_reward_ratio']} | 建議部位 {s['position_size_pct']}%"
+        f"風報比 1:{_md_escape(s['risk_reward_ratio'])} | 建議部位 {_md_escape(s['position_size_pct'])}%"
     )
     lines.append(
-        f"技術分 {c.get('tech_score', 'N/A')} | 勝率 {wr} ({c.get('backtest_samples', 0)}次) | 平均報酬 {c.get('avg_return', 'N/A')}"
+        f"技術分 {_md_escape(c.get('tech_score', 'N/A'))} | 勝率 {_md_escape(wr)} ({_md_escape(c.get('backtest_samples', 0))}次) | 平均報酬 {_md_escape(c.get('avg_return', 'N/A'))}"
     )
     return lines
 
 
 def _explain_buy_style(s: dict) -> str:
     reasons = s.get("buy_reason", [])
-    return " / ".join(reasons) if reasons else "符合該風格主條件"
+    return " / ".join(_md_escape(x) for x in reasons) if reasons else "符合該風格主條件"
 
 
 def _explain_watch_gap(s: dict) -> str:
@@ -188,9 +225,10 @@ def _sector_summary(signals: list[dict], watchlist: list[dict]) -> list[str]:
         avg = np.mean(d["chg_5d"]) if d["chg_5d"] else 0
         emoji = _trend_emoji(avg)
         total = len(d["stocks"])
+        safe_cat = _md_escape(cat)
         lines.append(
-            f"{emoji} *{cat}* ({total}檔) 5日均漲{avg:+.1f}% | "
-            f"保守型BUY {d['buy_c']} / 積極型BUY {d['buy_a']} / WATCH {d['watch']}"
+            f"{emoji} *{safe_cat}* ({total}檔) 5日均漲{avg:+.1f}% | "
+            f"保守型BUY {_md_escape(d['buy_c'])} / 積極型BUY {_md_escape(d['buy_a'])} / WATCH {_md_escape(d['watch'])}"
         )
     return lines
 
@@ -334,13 +372,18 @@ def format_messages(signals: list[dict], watchlist: list[dict] = None) -> list[s
         rest_watches = watches[6:]
         msg5.append(f"🟡 *WATCH TOP {len(top_watches)}*")
         for s in top_watches:
-            msg5.append(f"• *{s['stock_id']} {s['name']}*：{_explain_watch_gap(s)}")
+            msg5.append(
+                f"• *{_md_escape(s['stock_id'])} {_md_escape(s['name'])}*：{_explain_watch_gap(s)}"
+            )
         msg5.append("")
 
         if rest_watches:
             msg5.append(f"📎 其他觀察 {len(rest_watches)} 檔")
             rest_line = ", ".join(
-                [f"{s['stock_id']}{s['name']}({s.get('sort_score', s.get('signal_score', 0))})" for s in rest_watches]
+                [
+                    f"{_md_escape(s['stock_id'])}{_md_escape(s['name'])}({_md_escape(s.get('sort_score', s.get('signal_score', 0)))})"
+                    for s in rest_watches
+                ]
             )
             msg5.append(rest_line)
             msg5.append("")
