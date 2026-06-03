@@ -34,8 +34,8 @@ Google Sheet 股票池 → 跑策略評分 → Telegram 推播 + Sheet 紀錄
 
 你只需要維護一張 Google Sheet 的觀察清單，系統每天台股收盤後自動：
 
-1. **抓資料** — 透過 FinMind API 取得基本面財報 + 日 K 線
-2. **跑策略** — 基本面資格檢查 → 趨勢/位置/量價判斷 → 2 年歷史回測
+1. **抓資料** — 透過 FinMind API 取得基本面財報 + 日 K 線 + 三大法人 + 月營收
+2. **跑策略** — 基本面資格檢查 → setup_type（第一波/主升回測/續強）→ buy_style（保守/積極）→ 2 年歷史回測
 3. **發通知** — Telegram 推播買進/觀察訊號，附完整進出場價位
 4. **存紀錄** — 結果寫回 Google Sheet，累積歷史追蹤
 
@@ -50,6 +50,7 @@ Google Sheet 股票池 → 跑策略評分 → Telegram 推播 + Sheet 紀錄
 ```
 📊 每日選股報告 2026/04/09
 掃描 15 檔 | 保守型BUY 1 | 積極型BUY 1 | WATCH 5 | SKIP 8
+型態分布(BUY+WATCH)：第一波 3 / 主升回測 2 / 續強 1
 
 🌡️ 市場氛圍
 🟢 偏多 — 多數標的上漲且站穩月線，可積極佈局
@@ -68,6 +69,10 @@ Google Sheet 股票池 → 跑策略評分 → Telegram 推播 + Sheet 紀錄
 
 🔵 保守型BUY：趨勢較完整，重視站穩月季線與20日方向
 🟠 積極型BUY：趨勢轉強或接近突破，但短線波動較大
+📍 布局型態說明
+🟢 第一波啟動：趨勢剛發動，可早介入但需控制部位
+🔷 主升段回測：主升途中拉回，相對舒服的布局點
+🚀 續強追蹤：已在相對高位，追強需嚴守風險
 💡 每檔都會附入選主因 + 主要風險
 ```
 
@@ -76,8 +81,9 @@ Google Sheet 股票池 → 跑策略評分 → Telegram 推播 + Sheet 紀錄
 ```text
 🔵 保守型BUY（1）
 
-*2308 台達電*  保守型BUY | 排序 79.2
+*2308 台達電*  🔵 保守型BUY｜主升段回測 | 排序 79.2
 入選原因: 站穩月線與季線 / 20日趨勢向上 / 位置相對合理
+📍 布局型態: 主升段回測（主升段回測，季線確立後找支撐布局）
 ⚠️ 主要風險: 短線過熱，接近布林上軌
 進場 1660 → 停損 1527.2 / 目標 1826
 
@@ -124,6 +130,8 @@ cd stock-strategies-only
 - `enabled` — 設 `FALSE` 可暫停追蹤，不用刪除
 
 > `Signals` 分頁不用手動建，程式第一次跑會自動建立。
+>
+> 若是從舊版本升級，建議先備份後清空既有 `Signals` 分頁，再重跑一次讓新欄位表頭完整建立。
 
 記下 Sheet ID（網址中 `https://docs.google.com/spreadsheets/d/【這段】/edit`）。
 
@@ -205,6 +213,16 @@ signal_score = 基本面 × 20% + 技術面 × 50% + 回測勝率 × 30%（排�
 
 > `signal_score` 僅作排序參考，不直接決定 BUY/WATCH。
 
+### 雙軸分類模型（setup_type × buy_style）
+
+| setup_type | conservative | aggressive |
+|---|---|---|
+| first_wave | 🔵 保守型BUY｜第一波啟動 | 🟠 積極型BUY｜第一波啟動 |
+| pullback | 🔵 保守型BUY｜主升段回測 | 🟠 積極型BUY｜主升段回測 |
+| momentum | 🔵 保守型BUY｜續強追蹤 | 🟠 積極型BUY｜續強追蹤 |
+
+> setup_type 回答「目前位於哪種行情結構」；buy_style 回答「這檔用哪種風險風格切入」。
+
 ### 基本面篩選
 
 ```python
@@ -268,7 +286,6 @@ CONFIG = {
     "target_return": 0.10,      # 停利 10%
     "stop_loss": 0.08,          # 停損 8%
     "min_tech_score_for_signal": 60,  # 回測取樣的技術分門檻
-    "min_total_score_for_buy": 65,    # 相容性保留，實際分類由趨勢規則決定
 }
 ```
 
@@ -302,12 +319,12 @@ signal_score = round(
 # signal_score 僅供排序，不作為 BUY/WATCH 主決策
 ```
 
-**週期股策略**
+**進一步擴充方向（Phase 2）**
 
-預設策略適合成長股（台達電、上銀這類）。週期股（面板、記憶體、航運）建議：
-- 降低或跳過 EPS/ROE 門檻
-- 改看營收年增率
-- 加入產業景氣指標
+目前 v2.0 已接入「三大法人 + 月營收」；若要再提升可解釋性，可下一步加入：
+- PER / PBR（估值風險提示）
+- 融資融券（籌碼風險提示）
+- growth_pass 覆蓋率分析（再決定是否替代 fund_pass）
 
 ---
 
@@ -321,7 +338,7 @@ signal_score = round(
                     │  2. FinMind API│
 ┌─────────────┐     │  3. 策略評分   │     ┌─────────────┐
 │   FinMind   │────▶│  4. 歷史回測   │────▶│ Google Sheet │
-│ (財報 + K線) │     │  5. 發通知     │     │  (Signals)  │
+│(財報+K線+法人+月營收)│     │  5. 發通知     │     │  (Signals)  │
 └─────────────┘     └──────────────┘     └─────────────┘
                            │
                     ┌──────┴──────┐
@@ -360,14 +377,34 @@ stock-strategies-only/
 <details>
 <summary><b>FinMind 免費帳號有請求限制嗎？</b></summary>
 
-有，免費帳號每天約 600 次請求。每檔股票需要 2 次（財報 + K 線），所以觀察清單 **300 檔以內**不會超限。一般散戶追蹤 10-50 檔完全沒問題。
+有，免費帳號每天約 600 次請求。v2.0 每檔股票約 4 次呼叫（財報 + K 線 + 三大法人 + 月營收）。
+
+- 50 檔約 200 次
+- 100 檔約 400 次
+- 150 檔約 600 次（接近上限）
+
+一般追蹤 10-80 檔都很安全；若超過 100 檔，建議分兩批觀察池或提升資料快取策略。
+
+</details>
+
+<details>
+<summary><b>v2.0 新增了哪些資料集？</b></summary>
+
+目前已接入以下 FinMind 資料：
+
+- TaiwanStockPrice（價格與成交量）
+- TaiwanStockFinancialStatements（EPS / ROE）
+- TaiwanStockInstitutionalInvestorsBuySell（三大法人）
+- TaiwanStockMonthRevenue（月營收）
+
+用途：setup_type 與 buy_style 決策、排序加權、風險註記、Telegram 說明與 Sheet 落地欄位。
 
 </details>
 
 <details>
 <summary><b>可以用其他資料源取代 FinMind 嗎？</b></summary>
 
-可以。只需要改 `stock_strategies/data.py` 裡的三個函式，回傳格式一樣就行。常見替代：[TWSE OpenData](https://openapi.twse.com.tw/)、Yahoo Finance（需額外套件）。
+可以。只需要改 `stock_strategies/data.py` 裡各資料函式（price/fundamental/institutional/revenue），回傳格式一樣就行。常見替代：[TWSE OpenData](https://openapi.twse.com.tw/)、Yahoo Finance（需額外套件）。
 
 </details>
 

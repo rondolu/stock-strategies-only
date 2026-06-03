@@ -9,6 +9,4 @@ CONFIG = {
     "target_return": 0.10,
     "stop_loss": 0.08,
     "min_tech_score_for_signal": 60,
-    # 僅保留相容性，實際分類改由 evaluate.py 的趨勢/位置規則主導。
-    "min_total_score_for_buy": 65,
 }

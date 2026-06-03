@@ -38,13 +38,41 @@ def _style_label(style: str | None) -> str:
     return "BUY"
 
 
+def _setup_type_label(setup_type: str | None) -> str:
+    mapping = {
+        "first_wave": "第一波啟動",
+        "pullback": "主升段回測",
+        "momentum": "續強追蹤",
+    }
+    return mapping.get(setup_type, "型態未分類")
+
+
+def _style_setup_label(style: str | None, setup_type: str | None) -> str:
+    style_text = _style_label(style)
+    setup_text = _setup_type_label(setup_type)
+    if style == "conservative":
+        return f"🔵 {style_text}｜{setup_text}"
+    if style == "aggressive":
+        return f"🟠 {style_text}｜{setup_text}"
+    return f"{style_text}｜{setup_text}"
+
+
+def _explain_setup_type(setup_type: str | None) -> str:
+    mapping = {
+        "first_wave": "趨勢轉強初期，可早介入但波動較大",
+        "pullback": "主升段回測，季線確立後找支撐布局",
+        "momentum": "強勢延續，在相對高位追強需控管部位",
+    }
+    return mapping.get(setup_type, "等待更多訊號確認型態")
+
+
 def _format_stock_detail(s: dict, show_trend: bool = True) -> list[str]:
     """格式化單檔股票的詳細資訊"""
     c = s.get("components", {})
     t = s.get("trend", {})
     lines = []
     wr = f"{c['backtest_winrate']*100:.0f}%" if c.get("backtest_winrate") else "N/A"
-    style_text = _style_label(s.get("buy_style"))
+    style_text = _style_setup_label(s.get("buy_style"), s.get("setup_type"))
     lines.append(f"*{s['stock_id']} {s['name']}*  {style_text} | 排序 {s.get('sort_score', s.get('signal_score', 'N/A'))}")
     if show_trend and t:
         ma_status = ""
@@ -63,6 +91,7 @@ def _format_stock_detail(s: dict, show_trend: bool = True) -> list[str]:
     reasons = s.get("buy_reason", [])
     if reasons:
         lines.append(f"入選原因: {' / '.join(reasons[:3])}")
+    lines.append(f"📍 布局型態: {_setup_type_label(s.get('setup_type'))}（{_explain_setup_type(s.get('setup_type'))}）")
     if s.get("primary_risk"):
         lines.append(f"⚠️ 主要風險: {s['primary_risk']}")
 
@@ -175,15 +204,22 @@ def format_messages(signals: list[dict], watchlist: list[dict] = None) -> list[s
     aggressive_buys = [s for s in buys if s.get("buy_style") == "aggressive"]
     watches = [s for s in signals if s.get("action") == "WATCH"]
     skips = [s for s in signals if s.get("action") in ("SKIP", "ERROR")]
+    setup_candidates = [s for s in signals if s.get("action") in ("BUY", "WATCH")]
+    setup_first_wave = sum(1 for s in setup_candidates if s.get("setup_type") == "first_wave")
+    setup_pullback = sum(1 for s in setup_candidates if s.get("setup_type") == "pullback")
+    setup_momentum = sum(1 for s in setup_candidates if s.get("setup_type") == "momentum")
     today = datetime.now().strftime("%Y/%m/%d")
     total = len(signals)
     messages = []
 
     # === 第一則：市場總覽 + 類股強弱 ===
     msg1 = []
-    msg1.append(f"📊 每日選股報告* {today}")
+    msg1.append(f"📊 *V4.0 每日選股報告* {today}")
     msg1.append(
         f"掃描 {total} 檔 | 保守型BUY {len(conservative_buys)} | 積極型BUY {len(aggressive_buys)} | WATCH {len(watches)} | SKIP {len(skips)}"
+    )
+    msg1.append(
+        f"型態分布(BUY+WATCH)：第一波 {setup_first_wave} / 主升回測 {setup_pullback} / 續強 {setup_momentum}"
     )
     msg1.append("")
 
@@ -219,6 +255,11 @@ def format_messages(signals: list[dict], watchlist: list[dict] = None) -> list[s
     msg2.append("")
     msg2.append("🔵 *保守型BUY*：趨勢較完整，重視站穩月季線與20日方向，適合分批布局")
     msg2.append("🟠 *積極型BUY*：趨勢轉強或接近突破，可提早切入，但短線波動較大")
+    msg2.append("")
+    msg2.append("📍 *布局型態說明*")
+    msg2.append("🟢 第一波啟動：趨勢剛發動，可早介入但需控制部位")
+    msg2.append("🔷 主升段回測：主升途中拉回，相對舒服的布局點")
+    msg2.append("🚀 續強追蹤：已在相對高位，追強需嚴守風險")
     msg2.append("")
     msg2.append("💡 每檔都會提供：入選主因 + 最主要風險 + 進出場參考")
     messages.append("\n".join(msg2))
@@ -282,7 +323,7 @@ def format_messages(signals: list[dict], watchlist: list[dict] = None) -> list[s
     sentiment = _market_sentiment(signals)
     if "偏多" in sentiment and "中性" not in sentiment:
         msg5.append("• 市場偏多，可挑選保守型BUY分批進場")
-        msg5.append("• 積極型BUY僅做小部位試單")
+        msg5.append("• 積極型BUY在多頭行情也值得重視，可用小部位分批參與")
     elif "偏多" in sentiment:
         msg5.append("• 市場中性偏多，選股不選市")
         msg5.append("• 優先等回測品質較佳的標的回測支撐")

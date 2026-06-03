@@ -35,20 +35,31 @@ def append_signals(signals: list[dict]):
     """把結果寫回 Signals 分頁"""
     if not signals:
         return
+
+    headers = [
+        "date", "stock_id", "name", "action",
+        "buy_style", "setup_type", "inst_net_3d", "inst_trend", "rev_yoy_pct", "rev_3m_trend", "rev_latest_month",
+        "buy_reason",
+        "signal_score", "sort_score", "tech_score",
+        "above_ma20", "above_ma60", "chg_20d", "pct_from_high", "vol_ratio",
+        "winrate", "samples", "avg_return",
+        "entry_price", "stop_loss_price", "target_price", "rr_ratio", "position_pct",
+        "primary_risk", "risk_notes", "tech_signals",
+    ]
+
     sh = get_gsheet()
     try:
         ws = sh.worksheet("Signals")
     except gspread.WorksheetNotFound:
-        ws = sh.add_worksheet(title="Signals", rows=1000, cols=30)
-        ws.append_row([
-            "date", "stock_id", "name", "action",
-            "buy_style", "buy_reason",
-            "signal_score", "sort_score", "tech_score",
-            "above_ma20", "above_ma60", "chg_20d", "pct_from_high", "vol_ratio",
-            "winrate", "samples", "avg_return",
-            "entry_price", "stop_loss_price", "target_price", "rr_ratio", "position_pct",
-            "primary_risk", "risk_notes", "tech_signals"
-        ])
+        ws = sh.add_worksheet(title="Signals", rows=1000, cols=max(40, len(headers)))
+        ws.append_row(headers)
+
+    if ws.col_count < len(headers):
+        ws.add_cols(len(headers) - ws.col_count)
+
+    existing_header = ws.row_values(1)
+    if existing_header != headers:
+        ws.update(f"A1:{gspread.utils.rowcol_to_a1(1, len(headers)).split('1')[0]}1", [headers])
 
     rows = []
     for s in signals:
@@ -60,6 +71,12 @@ def append_signals(signals: list[dict]):
             s.get("name", ""),
             s.get("action", ""),
             s.get("buy_style", ""),
+            s.get("setup_type", ""),
+            s.get("inst_net_3d", ""),
+            s.get("inst_trend", ""),
+            s.get("rev_yoy_pct", ""),
+            s.get("rev_3m_trend", ""),
+            s.get("rev_latest_month", ""),
             ", ".join(s.get("buy_reason", [])),
             s.get("signal_score", ""),
             s.get("sort_score", ""),
