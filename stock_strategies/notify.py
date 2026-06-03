@@ -115,22 +115,46 @@ def _explain_buy_style(s: dict) -> str:
 def _explain_watch_gap(s: dict) -> str:
     c = s.get("components", {})
     t = s.get("trend", {})
+    met = []
     gaps = []
-    if not c.get("fundamental_pass"):
+
+    if c.get("fundamental_pass"):
+        met.append("基本面資格")
+    else:
         gaps.append("基本面資格待補強")
-    if not t.get("above_ma20"):
+
+    if t.get("above_ma20"):
+        met.append("站穩月線")
+    else:
         gaps.append("尚未站穩月線")
-    if not t.get("above_ma60"):
+
+    if t.get("above_ma60"):
+        met.append("站穩季線")
+    else:
         gaps.append("季線趨勢未完整")
-    if t.get("chg_20d", 0) <= 0:
+
+    if t.get("chg_20d", 0) > 0:
+        met.append("20日方向轉正")
+    else:
         gaps.append("20日方向尚未轉正")
-    if (c.get("backtest_samples") or 0) < 5:
+
+    if (c.get("backtest_samples") or 0) >= 5:
+        met.append("回測樣本充足")
+    else:
         gaps.append("回測樣本仍偏少")
-    if c.get("backtest_winrate") is not None and c.get("backtest_winrate", 0) < 0.45:
+
+    winrate = c.get("backtest_winrate")
+    if winrate is not None and winrate >= 0.45:
+        met.append("回測勝率達標")
+    else:
         gaps.append("回測勝率仍待提升")
+
+    met_text = " / ".join(met[:3]) if met else "尚無明確優勢"
     if not gaps:
-        return "條件接近完成，等待更佳位置"
-    return " / ".join(gaps[:3])
+        return f"已滿足：{met_text}｜待補強：無（條件完整）"
+
+    gap_text = " / ".join(gaps[:3])
+    return f"已滿足：{met_text}｜待補強：{gap_text}"
 
 
 def _sector_summary(signals: list[dict], watchlist: list[dict]) -> list[str]:
@@ -276,6 +300,7 @@ def format_messages(signals: list[dict], watchlist: list[dict] = None) -> list[s
             for s in chunk:
                 msg3.extend(_format_stock_detail(s))
                 msg3.append(f"💡 為何歸類: {_explain_buy_style(s)}")
+                msg3.append(f"🧩 條件檢核: {_explain_watch_gap(s)}")
                 msg3.append("")
             messages.append("\n".join(msg3))
     else:
@@ -293,6 +318,7 @@ def format_messages(signals: list[dict], watchlist: list[dict] = None) -> list[s
             for s in chunk:
                 msg4.extend(_format_stock_detail(s))
                 msg4.append(f"💡 為何歸類: {_explain_buy_style(s)}")
+                msg4.append(f"🧩 條件檢核: {_explain_watch_gap(s)}")
                 msg4.append("")
             messages.append("\n".join(msg4))
     else:
