@@ -42,7 +42,7 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def tech_score_at(row: pd.Series) -> dict:
-    """對一天計算技術分 (0-100)"""
+    """對一天計算技術分 (0-120，含 RSI 最高 20 分加分)"""
     score = 0
     signals = []
 

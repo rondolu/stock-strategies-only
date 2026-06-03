@@ -39,31 +39,46 @@ def append_signals(signals: list[dict]):
     try:
         ws = sh.worksheet("Signals")
     except gspread.WorksheetNotFound:
-        ws = sh.add_worksheet(title="Signals", rows=1000, cols=20)
+        ws = sh.add_worksheet(title="Signals", rows=1000, cols=30)
         ws.append_row([
-            "date", "stock_id", "name", "action", "signal_score",
-            "entry_price", "stop_loss_price", "target_price",
-            "rr_ratio", "position_pct", "winrate", "samples",
-            "tech_signals", "risk_notes"
+            "date", "stock_id", "name", "action",
+            "buy_style", "buy_reason",
+            "signal_score", "sort_score", "tech_score",
+            "above_ma20", "above_ma60", "chg_20d", "pct_from_high", "vol_ratio",
+            "winrate", "samples", "avg_return",
+            "entry_price", "stop_loss_price", "target_price", "rr_ratio", "position_pct",
+            "primary_risk", "risk_notes", "tech_signals"
         ])
 
     rows = []
     for s in signals:
         c = s.get("components", {})
+        t = s.get("trend", {})
         rows.append([
             s.get("date", ""),
             s.get("stock_id", ""),
             s.get("name", ""),
             s.get("action", ""),
+            s.get("buy_style", ""),
+            ", ".join(s.get("buy_reason", [])),
             s.get("signal_score", ""),
+            s.get("sort_score", ""),
+            c.get("tech_score", ""),
+            t.get("above_ma20", ""),
+            t.get("above_ma60", ""),
+            t.get("chg_20d", ""),
+            t.get("pct_from_high", ""),
+            t.get("vol_ratio", ""),
+            c.get("backtest_winrate", ""),
+            c.get("backtest_samples", ""),
+            c.get("avg_return", ""),
             s.get("entry_price", ""),
             s.get("stop_loss_price", ""),
             s.get("target_price", ""),
             s.get("risk_reward_ratio", ""),
             s.get("position_size_pct", ""),
-            c.get("backtest_winrate", ""),
-            c.get("backtest_samples", ""),
-            ", ".join(c.get("tech_signals", [])),
+            s.get("primary_risk", ""),
             " / ".join(s.get("risk_notes", [])),
+            ", ".join(c.get("tech_signals", [])),
         ])
     ws.append_rows(rows)
